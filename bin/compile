@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
+
+# Fail fast
+set -e
+set -o pipefail
+
+# Debug
+set -x
+
+# Parse params
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+
+# Set buildpack dir
+BUILDPACK_DIR=$(cd "$(dirname "$0")"; cd ..; pwd)
+
+# Set pinned version
+PINNED_VERSION="0.119.0"
+
+# If a version hasn't been specified, use the pinned version
+if [ -f "$ENV_DIR/OTELCOL_VERSION" ]; then
+  VERSION=$(cat "$ENV_DIR/OTELCOL_VERSION")
+else
+  VERSION="$PINNED_VERSION"
+fi
+
+OTELCOL_BINARY="otelcol"
+# If the user hasn't request otelcol-contrib explicetely, use core
+if [ -f "$ENV_DIR/OTELCOL_CONTRIB" ]; then
+  OTELCOL_CONTRIB=$(cat "$ENV_DIR/OTELCOL_CONTRIB")
+  if [ "$OTELCOL_CONTRIB" == "true" ]; then
+    OTELCOL_BINARY="otelcol-contrib"
+  fi
+fi
+
+# Download
+if [ ! -f "$CACHE_DIR/${OTELCOL_BINARY}-${VERSION}" ] || [ -n "$NOCACHE_OTELCOL" ]; then
+  echo "-----> Installing v${VERSION} of OpenTelemetry Collector"
+  wget --quiet -O otelcol.tar.gz https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VERSION}/${OTELCOL_BINARY}_${VERSION}_linux_amd64.tar.gz
+  tar -xzf otelcol.tar.gz
+
+  rm -f "$CACHE_DIR/${OTELCOL_BINARY}-*" || true
+  mv ${OTELCOL_BINARY} "$CACHE_DIR/${OTELCOL_BINARY}-${VERSION}"
+else
+  echo "-----> OpenTelemetry Collector v${VERSION} found in cache"
+fi
+
+# Copy binaries
+mkdir -p "$BUILD_DIR/bin"
+cp "$CACHE_DIR/${OTELCOL_BINARY}-${VERSION}" "$BUILD_DIR/bin/otelcol"
+
+# Install the runner
+echo "-----> Installing OpenTelemetry Collector runner"
+mkdir -p "$BUILD_DIR/.profile.d"
+cp "$BUILDPACK_DIR/extra/otelcol.sh" "$BUILD_DIR/.profile.d/"
+chmod +x "$BUILD_DIR/.profile.d/otelcol.sh"
